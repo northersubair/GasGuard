@@ -163,6 +163,57 @@ contract TestContract {
     });
   });
 
+  // Helper config to isolate a single rule by disabling all others
+  function isolateRule(ruleId: string): any {
+    const allRuleIds = [
+      'sol-003', 'sol-004', 'sol-005', 'sol-006', 'sol-007',
+      'sol-008', 'sol-009', 'sol-010', 'sol-011', 'sol-012',
+      'sol-016'
+    ];
+    const rules: any = {};
+    for (const id of allRuleIds) {
+      rules[id] = { enabled: id === ruleId };
+    }
+    return { rules };
+  }
+
+  describe('sol-016: Expensive Math Operations', () => {
+    it('should detect expensive exponentiation and modulo', async () => {
+      const code = `
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract MathContract {
+    function compute() external pure {
+        uint256 r = 10 ** 2;
+        uint256 m = 100 % 7;
+    }
+}
+`;
+
+      const result = await analyzer.analyze(code, 'test016.sol', isolateRule('sol-016'));
+      RuleAssertions.assertHasFinding(result.findings, 'sol-016');
+      const sol016Findings = result.findings.filter(f => f.ruleId === 'sol-016');
+      expect(sol016Findings.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should NOT flag simple math operations', async () => {
+      const code = `
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract SimpleMath {
+    function add(uint256 a, uint256 b) external pure returns (uint256) {
+        return a + b;
+    }
+}
+`;
+
+      const result = await analyzer.analyze(code, 'simple.sol', isolateRule('sol-016'));
+      RuleAssertions.assertNotHasFinding(result.findings, 'sol-016');
+    });
+  });
+
   describe('Batch Testing', () => {
     it('should run multiple fixtures and generate report', async () => {
       const fixtures = FixtureLoader.loadFixturesFromDir(

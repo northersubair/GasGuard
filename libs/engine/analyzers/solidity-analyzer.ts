@@ -152,6 +152,21 @@ export class SolidityAnalyzer extends BaseAnalyzer implements Analyzer {
       tags: ['events', 'auditability', 'transparency'],
       documentationUrl: 'https://docs.gasguard.dev/rules/sol-012',
     },
+    {
+      id: 'sol-016',
+      name: 'Expensive Math Operations',
+      description: 'Detects costly arithmetic operations like exponentiation and modulo that can be optimized',
+      severity: Severity.MEDIUM,
+      category: 'gas-optimization',
+      enabled: true,
+      tags: ['math', 'gas', 'optimization'],
+      documentationUrl: 'https://docs.gasguard.dev/rules/sol-016',
+      estimatedGasImpact: {
+        min: 100,
+        max: 5000,
+        typical: 500,
+      },
+    },
   ];
   
   getName(): string {
@@ -395,6 +410,27 @@ export class SolidityAnalyzer extends BaseAnalyzer implements Analyzer {
             description: 'Add event emissions for state changes.',
             codeSnippet: 'event StateChanged(address indexed user, uint256 amount);\n...\nemit StateChanged(msg.sender, value);',
             documentationUrl: 'https://docs.gasguard.dev/rules/sol-012',
+          },
+        })));
+      }
+      
+      // Rule: sol-016 - Expensive Math Operations
+      if (this.isRuleEnabled('sol-016', config)) {
+        const expensiveMath = this.detectExpensiveMathOperations(code);
+        findings.push(...expensiveMath.map(location => ({
+          ruleId: 'sol-016',
+          message: location.message,
+          severity: this.getRuleSeverity('sol-016', config),
+          location: {
+            file: filePath,
+            startLine: location.startLine,
+            endLine: location.endLine,
+          },
+          estimatedGasSavings: location.estimatedGasSavings,
+          suggestedFix: {
+            description: location.suggestedFix,
+            codeSnippet: location.codeSnippet,
+            documentationUrl: 'https://docs.gasguard.dev/rules/sol-016',
           },
         })));
       }
@@ -1199,6 +1235,60 @@ export class SolidityAnalyzer extends BaseAnalyzer implements Analyzer {
       }
     }
     
+    return findings;
+  }
+
+  /**
+   * Detects expensive math operations (sol-016):
+   * Flags exponentiation and modulo operations that are gas-heavy
+   */
+  private detectExpensiveMathOperations(code: string): Array<{
+    startLine: number;
+    endLine: number;
+    message: string;
+    estimatedGasSavings: number;
+    suggestedFix: string;
+    codeSnippet?: string;
+  }> {
+    const findings: Array<{
+      startLine: number;
+      endLine: number;
+      message: string;
+      estimatedGasSavings: number;
+      suggestedFix: string;
+      codeSnippet?: string;
+    }> = [];
+    const lines = code.split('\n');
+    
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return;
+      
+      // Exponentiation
+      const expMatch = line.match(/\b(\w+)\s*\*\*\s*(\w+)\b/);
+      if (expMatch && !expMatch[0].includes('*=') && expMatch[1] !== '**' && expMatch[2] !== '**') {
+        const leftIsNum = /^\d+$/.test(expMatch[1]);
+        const rightIsNum = /^\d+$/.test(expMatch[2]);
+        if (leftIsNum && rightIsNum) {
+          const base = parseInt(expMatch[1]);
+          const exp = parseInt(expMatch[2]);
+          const isPowerOfTwo = (base !== 0) && ((base & (base - 1)) === 0);
+          if (isPowerOfTwo && exp <= 256) {
+            findings.push({ startLine: index + 1, endLine: index + 1, message: `Expensive exponentiation detected: use bit shifting for powers of 2`, estimatedGasSavings: 200, suggestedFix: `Replace ${expMatch[0]} with bit shift`, codeSnippet: `// Instead of ${expMatch[0]}, use: 1 << ${Math.log2(base) * exp}` });
+          } else {
+            findings.push({ startLine: index + 1, endLine: index + 1, message: `Expensive exponentiation detected: ${expMatch[0]}. Exponentiation is very gas-heavy on-chain.`, estimatedGasSavings: 500, suggestedFix: `Consider precomputing values off-chain or using a lookup table`, codeSnippet: `// Off-chain computation or lookup table recommended for: ${expMatch[0]}` });
+          }
+        } else {
+          findings.push({ startLine: index + 1, endLine: index + 1, message: `Expensive exponentiation detected: ${expMatch[0]}. Exponentiation is very gas-heavy on-chain.`, estimatedGasSavings: 500, suggestedFix: `Consider precomputing values off-chain or using a lookup table`, codeSnippet: `// Off-chain computation or lookup table recommended for: ${expMatch[0]}` });
+        }
+      }
+      
+      // Modulo
+      const modMatch = line.match(/\b\w+\s*%\s*\w+/);
+      if (modMatch && !modMatch[0].includes('%=')) {
+        findings.push({ startLine: index + 1, endLine: index + 1, message: `Expensive modulo operation detected. Modulo is gas-heavy; consider using a different approach if used frequently.`, estimatedGasSavings: 50, suggestedFix: `If modulo by a power of 2, use bitwise AND instead. Otherwise, minimize modulo usage.` });
+      }
+    });
     return findings;
   }
 }
