@@ -148,6 +148,53 @@ contract LogTimestamp {
       const result = await analyzer.analyze(code, 'timestamp-log.sol');
       RuleAssertions.assertNotHasFinding(result.findings, 'sol-013');
     });
+
+    it('should detect insecure tx.origin authentication usage', async () => {
+      const code = `
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract OriginAuth {
+    address public owner;
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    function adminAction() external {
+        require(tx.origin == owner, "Not authorized");
+        // sensitive logic
+    }
+}
+`;
+
+      const result = await analyzer.analyze(code, 'origin-auth.sol');
+      RuleAssertions.assertHasFinding(result.findings, 'sol-014');
+      RuleAssertions.assertFindingMessage(result.findings, 'sol-014', 'tx.origin');
+    });
+
+    it('should not flag msg.sender authentication', async () => {
+      const code = `
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract SenderAuth {
+    address public owner;
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    function adminAction() external {
+        require(msg.sender == owner, "Not authorized");
+        // sensitive logic
+    }
+}
+`;
+
+      const result = await analyzer.analyze(code, 'sender-auth.sol');
+      RuleAssertions.assertNotHasFinding(result.findings, 'sol-014');
+    });
   });
 
   describe('Rule Assertions', () => {
