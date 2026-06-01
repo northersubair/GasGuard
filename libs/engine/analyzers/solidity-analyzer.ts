@@ -153,14 +153,14 @@ export class SolidityAnalyzer extends BaseAnalyzer implements Analyzer {
       documentationUrl: 'https://docs.gasguard.dev/rules/sol-012',
     },
     {
-      id: 'sol-017',
-      name: 'Unsafe Selfdestruct Usage',
-      description: 'Detects unsafe selfdestruct patterns that could lock assets or be exploited',
-      severity: Severity.CRITICAL,
-      category: 'security',
+      id: 'sol-015',
+      name: 'Dead Code Paths',
+      description: 'Identifies unreachable code paths that increase maintenance complexity and may indicate logic errors',
+      severity: Severity.MEDIUM,
+      category: 'maintainability',
       enabled: true,
-      tags: ['security', 'selfdestruct', 'lifecycle'],
-      documentationUrl: 'https://docs.gasguard.dev/rules/sol-017',
+      tags: ['dead-code', 'maintainability', 'unreachable'],
+      documentationUrl: 'https://docs.gasguard.dev/rules/sol-015',
     },
   ];
   
@@ -411,13 +411,13 @@ export class SolidityAnalyzer extends BaseAnalyzer implements Analyzer {
         })));
       }
       
-      // Rule: sol-017 - Unsafe Selfdestruct Usage
-      if (this.isRuleEnabled('sol-017', config)) {
-        const unsafeSelfdestruct = this.detectUnsafeSelfdestructUsage(code);
-        findings.push(...unsafeSelfdestruct.map(location => ({
-          ruleId: 'sol-017',
+      // Rule: sol-015 - Dead Code Paths
+      if (this.isRuleEnabled('sol-015', config)) {
+        const deadCodePaths = this.detectDeadCodePaths(code);
+        findings.push(...deadCodePaths.map(location => ({
+          ruleId: 'sol-015',
           message: location.message,
-          severity: this.getRuleSeverity('sol-017', config),
+          severity: this.getRuleSeverity('sol-015', config),
           location: {
             file: filePath,
             startLine: location.startLine,
@@ -425,8 +425,7 @@ export class SolidityAnalyzer extends BaseAnalyzer implements Analyzer {
           },
           suggestedFix: {
             description: location.suggestedFix,
-            codeSnippet: location.codeSnippet,
-            documentationUrl: 'https://docs.gasguard.dev/rules/sol-017',
+            documentationUrl: 'https://docs.gasguard.dev/rules/sol-015',
           },
         })));
       }
@@ -1291,6 +1290,71 @@ export class SolidityAnalyzer extends BaseAnalyzer implements Analyzer {
       }
     }
     
+    return findings;
+  }
+
+  /**
+   * Detects dead code paths (sol-015):
+   * Identifies unreachable code after unconditional exit statements
+   */
+  private detectDeadCodePaths(code: string): Array<{ startLine: number; endLine: number; message: string; suggestedFix: string }> {
+    const findings: Array<{ startLine: number; endLine: number; message: string; suggestedFix: string }> = [];
+    const lines = code.split('\n');
+    
+    const functionPattern = /^\s*function\s+(\w+)\s*\(/;
+    
+    for (let i = 0; i < lines.length; i++) {
+      const funcMatch = lines[i].match(functionPattern);
+      if (!funcMatch) continue;
+      
+      const functionName = funcMatch[1];
+      let braceDepth = 0;
+      let bodyStarted = false;
+      const bodyLines: Array<{ line: string; num: number; depth: number }> = [];
+      
+      for (let j = i; j < lines.length; j++) {
+        const cl = lines[j];
+        const opens = (cl.match(/\{/g) || []).length;
+        const closes = (cl.match(/\}/g) || []).length;
+        if (opens > 0) bodyStarted = true;
+        braceDepth += opens - closes;
+        if (bodyStarted) bodyLines.push({ line: cl, num: j + 1, depth: braceDepth });
+        if (bodyStarted && braceDepth === 0) break;
+      }
+      
+      let exitFoundAtLine = -1;
+      let exitDepth = -1;
+      
+      for (const bl of bodyLines) {
+        const trimmed = bl.line.trim();
+        if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed === '{' || trimmed === '}') continue;
+        
+        const isUnconditionalExit =
+          /^\s*return\b(?!s)/.test(bl.line) ||
+          /^\s*revert\b/.test(bl.line) ||
+          /^\s*selfdestruct\s*\(/.test(bl.line);
+        
+        if (isUnconditionalExit && bl.depth === 1) {
+          exitFoundAtLine = bl.num;
+          exitDepth = bl.depth;
+        }
+      }
+      
+      if (exitFoundAtLine > 0) {
+        for (const bl of bodyLines) {
+          const trimmed = bl.line.trim();
+          if (bl.num > exitFoundAtLine && bl.depth <= exitDepth && !trimmed.startsWith('//') && !trimmed.startsWith('*') && trimmed !== '' && trimmed !== '{' && trimmed !== '}') {
+            findings.push({
+              startLine: exitFoundAtLine,
+              endLine: bl.num,
+              message: `Unreachable code detected in function '${functionName}' after unconditional exit at line ${exitFoundAtLine}`,
+              suggestedFix: `Remove unreachable code after return/revert statement at line ${exitFoundAtLine}`,
+            });
+            break;
+          }
+        }
+      }
+    }
     return findings;
   }
 }
