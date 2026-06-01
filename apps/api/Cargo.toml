@@ -15,3 +15,7 @@ walkdir = "2.0"
 chrono = { version = "0.4", features = ["serde"] }
 gasguard-auto-fix = { path = "../../libs/auto-fix" }
 gasguard-plugin-system = { path = "../../libs/plugin-system" }
+
+[[bin]]
+name = "gasguard"
+path = "src/main.rs"

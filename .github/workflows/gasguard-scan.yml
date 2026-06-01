@@ -17,16 +17,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.10.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'pnpm'
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 10.10.0
 
       - name: Install dependencies
         run: |
@@ -258,6 +258,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     needs: gasguard-scan
+    continue-on-error: true
     
     steps:
       - name: Download Scan Results
@@ -297,12 +298,16 @@ jobs:
               statusMessage + "\n\n" +
               "*Scan completed on " + new Date(summary.scan_timestamp).toLocaleString() + "*";
               
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: comment
-              });
+              try {
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: comment
+                });
+              } catch (commentError) {
+                console.log('Could not post PR comment (may lack write permissions on fork PRs):', commentError.message);
+              }
             } catch (error) {
               console.log('Could not read scan results:', error.message);
             }

@@ -1,21 +1,3 @@
-  /**
-   * Simulate the effects of upgrading a user to a new tier
-   */
-  @Post("simulate-upgrade")
-  async simulateUpgrade(@Body() body: { userUsage: UserUsage; targetTier: UsageTier }) {
-    try {
-      const result = await this.tieredPricingService.simulateUpgrade(body.userUsage, body.targetTier);
-      return {
-        success: true,
-        data: result,
-      };
-    } catch (error) {
-      throw new HttpException(
-        error.message || "Failed to simulate upgrade",
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-  }
 import {
   Controller,
   Get,
@@ -357,5 +339,29 @@ export class TieredPricingController {
       success: true,
       data: preview,
     };
+  }
+
+  /**
+   * Simulate the effects of upgrading a user to a new tier
+   */
+  @Post("simulate-upgrade")
+  async simulateUpgrade(
+    @Body() body: { userUsage: UserUsage; targetTier: UsageTier },
+  ) {
+    try {
+      const result = await this.tieredPricingService.simulateUpgrade(
+        body.userUsage,
+        body.targetTier,
+      );
+      return {
+        success: true,
+        data: result,
+      };
+    } catch (error) {
+      throw new HttpException(
+        error.message || "Failed to simulate upgrade",
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 }

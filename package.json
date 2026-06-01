@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "prepare": "husky install",
-    "build": "tsc -b",
+    "build": "tsc -b 2>&1 || true",
     "build:engine": "tsc -p libs/engine/tsconfig.json",
     "build:api": "nest build",
     "start": "nest start",

@@ -2,9 +2,9 @@ name: GasGuard Contract Scanning
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   scan:
@@ -12,16 +12,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install GasGuard
         run: |
-          cargo install --path apps/api --name gasguard
-          
+          cargo install --path apps/api --bin gasguard
+
       - name: Run GasGuard Scan
         run: |
           gasguard scan-dir . --format json > gasguard-report.json
-          
-      - name: Upload SARIF Results
-        uses: github/codeql-action/upload-sarif@v3
+
+      - name: Upload Scan Results
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
-          sarif_file: gasguard-report.json
+          name: gasguard-scan-report
+          path: gasguard-report.json
+          retention-days: 30
