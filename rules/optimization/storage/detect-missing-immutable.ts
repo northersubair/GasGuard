@@ -27,16 +27,14 @@ interface StateVariable {
 }
 
 function stripComments(code: string): string {
-  return code
-    .replace(/\/\/[^\n]*/g, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '');
+  return code.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 function extractStateVariables(code: string): StateVariable[] {
   const variables: StateVariable[] = [];
   const lines = code.split('\n');
 
-  const stateVarPattern = /^\s*(public|private|internal|external)?\s*(constant\s+)?(immutable\s+)?(uint\d*|int\d*|address|bool|string|bytes\d*|bytes|mapping\s*\([^)]+\)\s*\w+)[^\;]*\s+([A-Za-z_$][\w$]*)/;
+  const stateVarPattern = /^\s*(public|private|internal|external)?\s*(constant\s+)?(immutable\s+)?([A-Za-z_$][\w$]*)\s+([A-Za-z_$][\w$]*)/;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -54,7 +52,7 @@ function extractStateVariables(code: string): StateVariable[] {
     if (match) {
       const isImmutable = match[3] !== undefined;
       variables.push({
-        name: match[4],
+        name: match[5],
         type: match[4],
         line: i + 1,
         isImmutable,
@@ -98,25 +96,68 @@ function findConstructor(code: string): { startLine: number; endLine: number; bo
   return null;
 }
 
-function extractConstructorAssignments(body: string): Set<string> {
-  const assignments = new Set<string>();
+function findConstructorEndLine(code: string): number {
+  const lines = code.split('\n');
+  const constructorPattern = /^\s*(constructor)\s*\([^)]*\)\s*(?:public\s*)?\{/;
 
-  const assignmentPatterns = [
-    /^\s*([A-Za-z_$][\w$]*)\s*=\s*/,
-    /^\s*([A-Za-z_$][\w$]*)\[([^\]]+)\]\s*=\s*/,
-  ];
+  for (let i = 0; i < lines.length; i++) {
+    if (constructorPattern.test(lines[i])) {
+      let braceDepth = 0;
+      let started = false;
 
-  const lines = body.split('\n');
-  for (const line of lines) {
-    for (const pattern of assignmentPatterns) {
-      const match = line.match(pattern);
-      if (match) {
-        assignments.add(match[1]);
+      for (let j = i; j < lines.length; j++) {
+        const opens = (lines[j].match(/\{/g) || []).length;
+        const closes = (lines[j].match(/\}/g) || []).length;
+
+        if (opens > 0) started = true;
+        braceDepth += opens - closes;
+
+        if (started && braceDepth === 0) {
+          return j + 1;
+        }
       }
     }
   }
 
+  return -1;
+}
+
+function extractConstructorAssignments(body: string): Set<string> {
+  const assignments = new Set<string>();
+
+  const lines = body.split('\n');
+  for (const line of lines) {
+    const assignmentMatch = line.match(/^\s*([A-Za-z_$][\w$]*)\s*=/);
+    if (assignmentMatch) {
+      assignments.add(assignmentMatch[1]);
+    }
+  }
+
   return assignments;
+}
+
+function hasAssignmentOutsideConstructor(code: string, varName: string, constructorEndLine: number): boolean {
+  const lines = code.split('\n');
+
+  for (let i = constructorEndLine; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (/^(function|modifier|event|struct|enum)\s/.test(trimmed)) continue;
+
+    const assignmentMatch = line.match(new RegExp(`(^|[^=])(${varName})\\s*=`, 'g'));
+    if (assignmentMatch && !trimmed.startsWith('//') && !trimmed.startsWith('/*')) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isOnlyUsedForReading(code: string, varName: string): boolean {
+  const pattern = new RegExp(`\\b${varName}\\b`);
+  const match = pattern.exec(code);
+  return match !== null;
 }
 
 export function detectMissingImmutable(code: string): MissingImmutableResult {
@@ -141,17 +182,17 @@ export function detectMissingImmutable(code: string): MissingImmutableResult {
 
     const inConstructor = constructorAssignments.has(variable.name);
 
-    const usedOutsideConstructor = new RegExp(
-      `(?<!constructor\\s*\\()\\b${variable.name}\\b`
-    ).test(strippedCode);
-
-    if (inConstructor && !usedOutsideConstructor) {
-      immutableCandidates.push({
-        name: variable.name,
-        line: variable.line,
-        type: variable.type,
-        reason: 'Assigned in constructor and never modified afterward. Consider marking as immutable.',
-      });
+    if (inConstructor) {
+      const hasAssignmentOutside = hasAssignmentOutsideConstructor(strippedCode, variable.name, constructor.endLine);
+      
+      if (!hasAssignmentOutside) {
+        immutableCandidates.push({
+          name: variable.name,
+          line: variable.line,
+          type: variable.type,
+          reason: `Variable '${variable.name}' is assigned in constructor and never modified afterward. Consider marking as immutable.`,
+        });
+      }
     }
   }
 
